@@ -2481,14 +2481,13 @@ struct NotchView: View {
     /// Top-left settings: control the persistent bar's left/right widgets.
     private var settingsMenu: some View {
         Menu {
-            if supabase.isSignedIn {
-                Menu("Account (\(supabase.userEmail ?? "signed in"))") {
-                    Button("Sign out") { Task { await supabase.signOut() } }
-                }
-            } else {
-                Button {
-                    onOpenAuth()
-                } label: {
+            Button {
+                onOpenAuth()
+            } label: {
+                if supabase.isSignedIn {
+                    Label("Account & sync (\(supabase.userEmail ?? "signed in"))",
+                          systemImage: "person.crop.circle.fill")
+                } else {
                     Label("Sign in to sync…", systemImage: "person.crop.circle")
                 }
             }
