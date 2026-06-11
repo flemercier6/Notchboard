@@ -1,6 +1,9 @@
+import AppKit
 import Combine
 import Foundation
 import Supabase
+
+private let kBinaryBucket = "shelf-files"
 
 // Postgres row shapes. Extra columns (created_at/updated_at/…) are ignored on
 // decode and defaulted by the DB on insert.
@@ -137,7 +140,7 @@ final class SyncService: ObservableObject {
             })
             let remoteSigById = Dictionary(uniqueKeysWithValues: remoteItemRows.map { ($0.id, signature(forKind: $0.kind, payload: $0.payload, folderId: $0.folder_id)) })
 
-            var resultItems: [ShelfItem] = store.items.filter { itemSignature($0) == nil } // keep non-syncable (image/file)
+            var resultItems: [ShelfItem] = []   // text items here; binary appended in its own section
             var newItemBase: [String: String] = [:]
             var itemUpserts: [ShelfItem] = []
             var itemDeletes: [String] = []
@@ -219,6 +222,53 @@ final class SyncService: ObservableObject {
                 }
             }
 
+            // ---- Binary items (images / files) via Storage ----
+            let localBinaryById = Dictionary(store.items.filter { isBinary($0) }
+                .map { ($0.id.uuidString, $0) }, uniquingKeysWith: { a, _ in a })
+            let remoteBinaryById = Dictionary(remoteItemRows.filter { $0.kind == "image" || $0.kind == "file" }
+                .map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let baseBinaryIds = base.items.filter { $0.value.hasPrefix("image|") || $0.value.hasPrefix("file|") }.map(\.key)
+
+            var newBinaryBase: [String: String] = [:]
+            var binaryRowUpserts: [ItemRow] = []
+            var binaryRowDeletes: [String] = []
+            var binaryStorageDeletes: [String] = []
+
+            for id in Set(localBinaryById.keys).union(remoteBinaryById.keys).union(baseBinaryIds) {
+                let local = localBinaryById[id]
+                let remote = remoteBinaryById[id]
+                let lSig = local.flatMap(binarySignature)
+                let rSig = remote.map(binaryRowSignature)
+                let bSig = base.items[id]
+                switch (local, remote) {
+                case let (l?, r?):
+                    if lSig == rSig { resultItems.append(l); newBinaryBase[id] = lSig }
+                    else if rSig != bSig && lSig == bSig, let updated = applyRemoteMeta(to: l, row: r) {
+                        resultItems.append(updated); newBinaryBase[id] = rSig          // metadata moved elsewhere
+                    } else {
+                        resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
+                    }
+                case let (l?, nil):
+                    if bSig == nil {
+                        try await uploadBinary(l, userId: uid)                          // new local binary
+                        resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
+                    } else if lSig != bSig {
+                        resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
+                    } // else: deleted remotely -> drop (local file pruned on save)
+                case let (nil, r?):
+                    if bSig == nil {
+                        if let item = try await downloadBinary(r, userId: uid) {         // new from another device
+                            resultItems.append(item); newBinaryBase[id] = rSig
+                        }
+                    } else {                                                            // deleted locally -> delete remote
+                        binaryRowDeletes.append(id)
+                        binaryStorageDeletes.append(storagePath(uid: uid, id: id, ext: r.payload["ext"] ?? "bin"))
+                    }
+                case (nil, nil):
+                    break
+                }
+            }
+
             // ---- Apply locally (only if something changed, to avoid UI churn) ----
             resultItems.sort { $0.createdAt < $1.createdAt }
             if !sameItems(resultItems, store.items) || !sameFolders(resultFolders, store.folders) {
@@ -227,29 +277,32 @@ final class SyncService: ObservableObject {
 
             // ---- Push diffs to Supabase ----
             if !folderUpserts.isEmpty {
-                let rows = folderUpserts.map { folderRow($0, userId: uid) }
-                try await supabase.client.from("folders").upsert(rows).execute()
+                try await supabase.client.from("folders").upsert(folderUpserts.map { folderRow($0, userId: uid) }).execute()
             }
-            if !itemUpserts.isEmpty {
-                let rows = itemUpserts.compactMap { itemRow($0, userId: uid) }
-                try await supabase.client.from("shelf_items").upsert(rows).execute()
+            let allItemUpserts = itemUpserts.compactMap { itemRow($0, userId: uid) } + binaryRowUpserts
+            if !allItemUpserts.isEmpty {
+                try await supabase.client.from("shelf_items").upsert(allItemUpserts).execute()
             }
-            if !itemDeletes.isEmpty {
-                try await supabase.client.from("shelf_items").delete().in("id", values: itemDeletes).execute()
+            let allItemDeletes = itemDeletes + binaryRowDeletes
+            if !allItemDeletes.isEmpty {
+                try await supabase.client.from("shelf_items").delete().in("id", values: allItemDeletes).execute()
+            }
+            if !binaryStorageDeletes.isEmpty {
+                _ = try? await supabase.client.storage.from(kBinaryBucket).remove(paths: binaryStorageDeletes)
             }
             if !folderDeletes.isEmpty {
                 try await supabase.client.from("folders").delete().in("id", values: folderDeletes).execute()
             }
 
-            base.items = newItemBase
+            base.items = newItemBase.merging(newBinaryBase) { _, b in b }
             base.folders = newFolderBase
             base.userId = uid
             saveBase()
 
             let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
-            status = "✓ \(f.string(from: Date())) — local \(localSyncable.count) item(s), "
-                + "pushed \(itemUpserts.count), cloud \(newItemBase.count); "
-                + "folders \(resultFolders.count)"
+            status = "✓ \(f.string(from: Date())) — text \(localSyncable.count), binary \(localBinaryById.count); "
+                + "pushed \(itemUpserts.count + binaryRowUpserts.count); "
+                + "cloud \(newItemBase.count + newBinaryBase.count); folders \(resultFolders.count)"
         } catch {
             status = "⚠️ \(String(describing: error).prefix(300))"
         }
@@ -310,9 +363,88 @@ final class SyncService: ObservableObject {
         FolderRow(id: f.id.uuidString, user_id: userId, name: f.name, kind: f.kind.rawValue, position: 0)
     }
 
+    // MARK: - Binary (image/file) helpers — content lives in Supabase Storage
+
+    private func isBinary(_ item: ShelfItem) -> Bool {
+        switch item.payload { case .image, .file: return true; default: return false }
+    }
+
+    private func binaryURLAndExt(_ item: ShelfItem) -> (url: URL, ext: String)? {
+        switch item.payload {
+        case .image(let url, _, _): return (url, url.pathExtension.isEmpty ? "img" : url.pathExtension)
+        case .file(let url, _): return (url, url.pathExtension.isEmpty ? "bin" : url.pathExtension)
+        default: return nil
+        }
+    }
+
+    private func binarySignature(_ item: ShelfItem) -> String? {
+        let folder = item.folderId?.uuidString ?? "-"
+        switch item.payload {
+        case .image(let url, let name, _): return "image|\(folder)|\(name)|\(url.pathExtension)"
+        case .file(let url, let name): return "file|\(folder)|\(name)|\(url.pathExtension)"
+        default: return nil
+        }
+    }
+
+    private func binaryRowSignature(_ row: ItemRow) -> String {
+        "\(row.kind)|\(row.folder_id ?? "-")|\(row.payload["name"] ?? "")|\(row.payload["ext"] ?? "")"
+    }
+
+    private func binaryRow(_ item: ShelfItem, userId: String) -> ItemRow {
+        let name: String, ext: String
+        switch item.payload {
+        case .image(let url, let n, _): name = n; ext = url.pathExtension.isEmpty ? "img" : url.pathExtension
+        case .file(let url, let n): name = n; ext = url.pathExtension.isEmpty ? "bin" : url.pathExtension
+        default: name = ""; ext = "bin"
+        }
+        return ItemRow(id: item.id.uuidString, user_id: userId, kind: item.payload.kind.rawValue,
+                       payload: ["name": name, "ext": ext], folder_id: item.folderId?.uuidString, position: 0)
+    }
+
+    private func storagePath(uid: String, id: String, ext: String) -> String { "\(uid)/\(id).\(ext)" }
+
+    private func uploadBinary(_ item: ShelfItem, userId uid: String) async throws {
+        guard let (url, ext) = binaryURLAndExt(item) else { return }
+        let data = try Data(contentsOf: url)
+        let path = storagePath(uid: uid, id: item.id.uuidString, ext: ext)
+        try await supabase.client.storage.from(kBinaryBucket)
+            .upload(path, data: data, options: FileOptions(upsert: true))
+    }
+
+    private func downloadBinary(_ row: ItemRow, userId uid: String) async throws -> ShelfItem? {
+        guard let id = UUID(uuidString: row.id) else { return nil }
+        let name = row.payload["name"] ?? "file"
+        let ext = row.payload["ext"] ?? "bin"
+        let path = storagePath(uid: uid, id: row.id, ext: ext)
+        let data = try await supabase.client.storage.from(kBinaryBucket).download(path: path)
+        let folderId = row.folder_id.flatMap(UUID.init(uuidString:))
+        if row.kind == "image" {
+            guard let url = ShelfPersistence.storeImageData(data, id: id, ext: ext),
+                  let img = NSImage(contentsOf: url) else { return nil }
+            return ShelfItem(id: id, payload: .image(url: url, name: name, image: img), folderId: folderId)
+        } else {
+            guard let url = ShelfPersistence.storeFileData(data, id: id, name: name) else { return nil }
+            return ShelfItem(id: id, payload: .file(url: url, name: name), folderId: folderId)
+        }
+    }
+
+    /// Update a local binary item's folder/name from a remote row (binary stays local).
+    private func applyRemoteMeta(to item: ShelfItem, row: ItemRow) -> ShelfItem? {
+        let folderId = row.folder_id.flatMap(UUID.init(uuidString:))
+        let name = row.payload["name"] ?? ""
+        switch item.payload {
+        case .image(let url, _, let img):
+            return ShelfItem(id: item.id, payload: .image(url: url, name: name, image: img), createdAt: item.createdAt, folderId: folderId)
+        case .file(let url, _):
+            return ShelfItem(id: item.id, payload: .file(url: url, name: name), createdAt: item.createdAt, folderId: folderId)
+        default: return nil
+        }
+    }
+
     private func sameItems(_ a: [ShelfItem], _ b: [ShelfItem]) -> Bool {
         guard a.count == b.count else { return false }
-        for (x, y) in zip(a, b) where x.id != y.id || itemSignature(x) != itemSignature(y) { return false }
+        func sig(_ i: ShelfItem) -> String { itemSignature(i) ?? binarySignature(i) ?? "" }
+        for (x, y) in zip(a, b) where x.id != y.id || sig(x) != sig(y) { return false }
         return true
     }
     private func sameFolders(_ a: [ShelfFolder], _ b: [ShelfFolder]) -> Bool {

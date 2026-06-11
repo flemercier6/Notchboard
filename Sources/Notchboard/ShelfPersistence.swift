@@ -97,6 +97,19 @@ enum ShelfPersistence {
         }
     }
 
+    /// Write image bytes downloaded from sync to a local file with a known id.
+    static func storeImageData(_ data: Data, id: UUID, ext: String) -> URL? {
+        let e = ext.isEmpty ? "img" : ext
+        let destination = imagesDirectory.appendingPathComponent("\(id.uuidString).\(e)")
+        do { try data.write(to: destination); return destination } catch { return nil }
+    }
+
+    /// Write file bytes downloaded from sync to a local file with a known id.
+    static func storeFileData(_ data: Data, id: UUID, name: String) -> URL? {
+        let destination = filesDirectory.appendingPathComponent("\(id.uuidString)__\(name)")
+        do { try data.write(to: destination); return destination } catch { return nil }
+    }
+
     static func load() -> (folders: [ShelfFolder], items: [ShelfItem]) {
         guard let data = try? Data(contentsOf: indexURL) else {
             return ([], [])
