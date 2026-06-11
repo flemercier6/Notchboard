@@ -91,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Auto-save new screenshots to the shelf.
         screenshotWatcher.onScreenshot = { [weak self] url in
-            self?.store.addImageFile(url, displayName: url.lastPathComponent)
+            self?.store.addScreenshot(url)
         }
         screenshotWatcher.start()
 

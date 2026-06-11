@@ -63,11 +63,19 @@ struct ShelfItem: Identifiable {
     }
 }
 
+extension ShelfItem: Equatable {
+    /// Identity equality (ids are unique) — enough for SwiftUI onChange/animation.
+    static func == (lhs: ShelfItem, rhs: ShelfItem) -> Bool { lhs.id == rhs.id }
+}
+
 /// Holds the items dropped onto the shelf and bridges to the system clipboard.
 @MainActor
 final class ShelfStore: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
     @Published private(set) var folders: [ShelfFolder] = []
+
+    /// Set when a screenshot is auto-saved, so the UI can flash a confirmation.
+    @Published var lastScreenshotAdded: ShelfItem?
 
     /// Fired after any LOCAL mutation (not when remote sync applies changes), so
     /// the sync engine can push. Suppressed during `applyRemote`.
@@ -171,6 +179,14 @@ final class ShelfStore: ObservableObject {
             folderId: folderId
         ))
         persist()
+        return id
+    }
+
+    /// Auto-save a screenshot (copies it into the shelf) and flag it for the UI.
+    @discardableResult
+    func addScreenshot(_ url: URL) -> UUID? {
+        guard let id = addImageFile(url, displayName: url.lastPathComponent) else { return nil }
+        lastScreenshotAdded = items.first { $0.id == id }
         return id
     }
 

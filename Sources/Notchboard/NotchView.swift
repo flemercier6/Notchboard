@@ -21,6 +21,8 @@ struct NotchView: View {
     @State private var slackBanner: SlackMessage?
     @State private var slackBannerTask: Task<Void, Never>?
     @State private var emailBannerTask: Task<Void, Never>?
+    @State private var screenshotBanner: ShelfItem?
+    @State private var screenshotBannerTask: Task<Void, Never>?
     @State private var barLeftEdge: CGFloat = 0
     @State private var meetingHoverStop = false
     @State private var selectedCalendarDay = Date()
@@ -205,6 +207,14 @@ struct NotchView: View {
                     .transition(.notchReveal)
             }
 
+            // Screenshot auto-saved confirmation (same left slot).
+            if let screenshotBanner, emailBanner == nil, slackBanner == nil {
+                screenshotBannerView(screenshotBanner)
+                    .id(screenshotBanner.id)
+                    .offset(x: slackBannerOffsetX)
+                    .transition(.notchReveal)
+            }
+
             // Persistent compact bar — always-visible widgets flanking the notch.
             PersistentBar(
                 settings: persistentSettings,
@@ -220,7 +230,7 @@ struct NotchView: View {
             // only; the full card shows in the expanded shelf). Hidden while a
             // meeting tab or email banner occupies the left slot.
             if let track = nowPlaying.track, !viewModel.isExpanded,
-               meeting.state == .idle, emailBanner == nil, slackBanner == nil {
+               meeting.state == .idle, emailBanner == nil, slackBanner == nil, screenshotBanner == nil {
                 nowPlayingCompactTab(track)
                     .offset(x: nowPlayingOffsetX)
                     .transition(.notchReveal)
@@ -248,7 +258,11 @@ struct NotchView: View {
         .onChange(of: slack.incoming) { _, message in
             if let message { showSlackBanner(message) }
         }
+        .onChange(of: store.lastScreenshotAdded) { _, item in
+            if let item { showScreenshotBanner(item) }
+        }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: slackBanner)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: screenshotBanner)
         .onPreferenceChange(BarLeftEdgeKey.self) { barLeftEdge = $0 }
     }
 
@@ -1918,6 +1932,49 @@ struct NotchView: View {
             guard !Task.isCancelled else { return }
             withAnimation(.spring(response: 0.85, dampingFraction: 0.92)) {
                 slackBanner = nil
+            }
+        }
+    }
+
+    // MARK: - Screenshot saved banner
+
+    private func screenshotBannerView(_ item: ShelfItem) -> some View {
+        Group {
+            if case .image(_, _, let image) = item.payload {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                Image(systemName: "camera.viewfinder").resizable().scaledToFit()
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
+        .frame(width: 24, height: 24)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(Color(hex: "#FFFFFF") ?? .white)
+                .padding(2)
+                .background(Circle().fill(Color.accentColor))
+                .offset(x: 5, y: 4)
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, Self.emailBannerTuck)
+        .frame(width: Self.emailBannerWidth, height: metrics.notchHeight, alignment: .leading)
+        .background(emailBannerShape.fill(Color.black))
+        .clipShape(emailBannerShape)
+        .help("Screenshot saved to your shelf")
+    }
+
+    private func showScreenshotBanner(_ item: ShelfItem) {
+        screenshotBannerTask?.cancel()
+        withAnimation(.spring(response: 0.95, dampingFraction: 0.86)) {
+            screenshotBanner = item
+        }
+        screenshotBannerTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_800_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.92)) {
+                screenshotBanner = nil
             }
         }
     }

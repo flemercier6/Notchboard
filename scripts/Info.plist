@@ -30,6 +30,8 @@
     <string>Notchboard shows your Apple Calendar events in the dash.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>Notchboard shows your Apple Calendar events in the dash.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Notchboard watches for new screenshots to automatically save them to your shelf.</string>
     <key>UTExportedTypeDeclarations</key>
     <array>
         <dict>
