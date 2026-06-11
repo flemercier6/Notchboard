@@ -22,7 +22,7 @@ final class NotchWindow: NSPanel {
     private let notionAuth: NotionAuth
     private let notionService: NotionService
     private let supabase: SupabaseManager
-    private let onOpenAuth: () -> Void
+    private let sync: SyncService
     let viewModel = NotchViewModel()
     private var cancellables = Set<AnyCancellable>()
 
@@ -51,7 +51,7 @@ final class NotchWindow: NSPanel {
         notionAuth: NotionAuth,
         notionService: NotionService,
         supabase: SupabaseManager,
-        onOpenAuth: @escaping () -> Void
+        sync: SyncService
     ) {
         self.store = store
         self.driveAuth = driveAuth
@@ -66,7 +66,7 @@ final class NotchWindow: NSPanel {
         self.notionAuth = notionAuth
         self.notionService = notionService
         self.supabase = supabase
-        self.onOpenAuth = onOpenAuth
+        self.sync = sync
         super.init(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -103,7 +103,7 @@ final class NotchWindow: NSPanel {
             notionAuth: notionAuth,
             notionService: notionService,
             supabase: supabase,
-            onOpenAuth: onOpenAuth
+            sync: sync
         ))
         hosting.autoresizingMask = [.width, .height]
         contentView = hosting
@@ -112,8 +112,10 @@ final class NotchWindow: NSPanel {
         // to be key and the app active; release focus when neither is active.
         viewModel.$isSearching
             .combineLatest(viewModel.$editingColorId, viewModel.$isEditingSnippet, viewModel.$isEditingNote)
-            .map { searching, editingColor, editingSnippet, editingNote in
-                searching || editingColor != nil || editingSnippet || editingNote
+            .combineLatest(viewModel.$isSettingsOpen)
+            .map { base, settingsOpen in
+                let (searching, editingColor, editingSnippet, editingNote) = base
+                return searching || editingColor != nil || editingSnippet || editingNote || settingsOpen
             }
             .removeDuplicates()
             .sink { [weak self] needsKeyboard in

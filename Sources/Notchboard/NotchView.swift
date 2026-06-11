@@ -16,13 +16,18 @@ struct NotchView: View {
     @ObservedObject var notionAuth: NotionAuth
     @ObservedObject var notionService: NotionService
     @ObservedObject var supabase: SupabaseManager
-    var onOpenAuth: () -> Void = {}
+    @ObservedObject var sync: SyncService
     @State private var emailBanner: IncomingEmail?
     @State private var slackBanner: SlackMessage?
     @State private var slackBannerTask: Task<Void, Never>?
     @State private var emailBannerTask: Task<Void, Never>?
     @State private var screenshotBanner: ShelfItem?
     @State private var screenshotBannerTask: Task<Void, Never>?
+    @State private var showSettings = false
+    @State private var settingsSection: SettingsSection = .account
+    @State private var authEmail = ""
+    @State private var authPassword = ""
+    @State private var authIsSignUp = false
     @State private var barLeftEdge: CGFloat = 0
     @State private var meetingHoverStop = false
     @State private var selectedCalendarDay = Date()
@@ -243,8 +248,15 @@ struct NotchView: View {
                     .transition(.notchReveal)
                     .zIndex(15)
             }
+
+            if showSettings {
+                settingsOverlay
+                    .zIndex(50)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: showSettings)
+        .onChange(of: showSettings) { _, open in viewModel.isSettingsOpen = open }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: nowPlaying.track != nil)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: meeting.state)
         .animation(.spring(response: 0.34, dampingFraction: 0.72), value: viewModel.isExpanded)
@@ -2518,99 +2530,30 @@ struct NotchView: View {
         }
     }
 
-    /// Top-left settings: control the persistent bar's left/right widgets.
+    private enum SettingsSection: String, CaseIterable, Identifiable {
+        case account, preferences, connections, widgets
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .account: return "Account"
+            case .preferences: return "Preferences"
+            case .connections: return "Connections"
+            case .widgets: return "Widgets"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .account: return "person.crop.circle"
+            case .preferences: return "slider.horizontal.3"
+            case .connections: return "link"
+            case .widgets: return "square.grid.2x2"
+            }
+        }
+    }
+
+    /// The gear button — opens the settings popover.
     private var settingsMenu: some View {
-        Menu {
-            Button {
-                onOpenAuth()
-            } label: {
-                if supabase.isSignedIn {
-                    Label("Account & sync (\(supabase.userEmail ?? "signed in"))",
-                          systemImage: "person.crop.circle.fill")
-                } else {
-                    Label("Sign in to sync…", systemImage: "person.crop.circle")
-                }
-            }
-            Divider()
-            Button {
-                openWidgetConfigurator()
-            } label: {
-                Label("Customize widgets", systemImage: "slider.horizontal.3")
-            }
-            Menu("Open shelf") {
-                openModeOptions
-            }
-            Menu("Dash sections") {
-                ForEach(DashSection.allCases) { section in
-                    Button {
-                        persistentSettings.toggleDashSection(section)
-                    } label: {
-                        if persistentSettings.isDashSectionOn(section) {
-                            Label(section.title, systemImage: "checkmark")
-                        } else {
-                            Text(section.title)
-                        }
-                    }
-                }
-            }
-            Divider()
-            if driveAuth.isConnected {
-                Button("Disconnect Google\(driveAuth.accountEmail.map { " (\($0))" } ?? "")") {
-                    driveAuth.disconnect()
-                }
-            } else {
-                Button {
-                    tab = .assets
-                    connectGoogle()
-                } label: {
-                    Label("Connect Google account", systemImage: "person.crop.circle.badge.plus")
-                }
-            }
-            Divider()
-            if slack.workspaces.isEmpty {
-                Button {
-                    connectSlack()
-                } label: {
-                    Label(slack.isConnecting ? "Connecting…" : "Add Slack workspace",
-                          systemImage: "number")
-                }
-                .disabled(slack.isConnecting)
-            } else {
-                Menu("Slack workspaces") {
-                    ForEach(slack.workspaces) { ws in
-                        Button("Disconnect \(ws.teamName)") { slack.disconnect(ws.teamId) }
-                    }
-                    Divider()
-                    Button {
-                        connectSlack()
-                    } label: {
-                        Label(slack.isConnecting ? "Connecting…" : "Add another workspace",
-                              systemImage: "plus")
-                    }
-                    .disabled(slack.isConnecting)
-                }
-            }
-            Divider()
-            if notionAuth.isConnected {
-                Button("Disconnect Notion\(notionAuth.workspaceName.map { " (\($0))" } ?? "")") {
-                    notionAuth.disconnect()
-                    notionService.clear()
-                }
-            } else {
-                Button {
-                    tab = .notes
-                    connectNotion()
-                } label: {
-                    Label(notionAuth.isConnecting ? "Connecting…" : "Connect Notion",
-                          systemImage: "doc.text")
-                }
-                .disabled(notionAuth.isConnecting)
-            }
-            Divider()
-            Button("Quit Notchboard") {
-                NSApplication.shared.terminate(nil)
-            }
-        } label: {
+        Button { showSettings = true } label: {
             Image(systemName: "gearshape")
                 .symbolRenderingMode(.palette)
                 .font(.system(size: 13, weight: .medium))
@@ -2618,19 +2561,348 @@ struct NotchView: View {
                 .padding(6)
                 .background(Capsule().fill(Color.white.opacity(0.10)))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(.plain)
+        .help("Settings")
     }
 
-    private var openModeOptions: some View {
-        ForEach(ShelfOpenMode.allCases) { mode in
-            Button { persistentSettings.openMode = mode } label: {
-                if mode == persistentSettings.openMode {
-                    Label(mode.title, systemImage: "checkmark")
-                } else {
-                    Text(mode.title)
+    private func closeSettings() {
+        showSettings = false
+        supabase.authError = nil
+    }
+
+    // MARK: - Settings popover (sidebar + panes)
+
+    private var settingsOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.4).ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { closeSettings() }
+            settingsPanel
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+        }
+        .environment(\.colorScheme, .dark)
+        .onExitCommand { closeSettings() }
+    }
+
+    private var settingsPanel: some View {
+        HStack(spacing: 0) {
+            settingsSidebar
+            Divider().overlay(Color.white.opacity(0.08))
+            settingsContent
+        }
+        .frame(width: 580, height: 400)
+        .background(settingsShelfBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(10)
+        .background(VisualEffectBlur())
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            Button(action: closeSettings) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.white.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .padding(16)
+        }
+    }
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Settings")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(.horizontal, 10).padding(.bottom, 4)
+            ForEach(SettingsSection.allCases) { s in
+                Button { settingsSection = s } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: s.icon).font(.system(size: 12)).frame(width: 16)
+                        Text(s.title).font(.system(size: 13, weight: settingsSection == s ? .semibold : .regular))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(settingsSection == s ? .white : .white.opacity(0.6))
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(settingsSection == s ? Color.white.opacity(0.12) : .clear))
                 }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+            Button { NSApplication.shared.terminate(nil) } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "power").font(.system(size: 12)).frame(width: 16)
+                    Text("Quit Notchboard").font(.system(size: 12))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.white.opacity(0.45))
+                .padding(.horizontal, 10).padding(.vertical, 7)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .frame(width: 170)
+    }
+
+    @ViewBuilder
+    private var settingsContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                switch settingsSection {
+                case .account: accountPane
+                case .preferences: preferencesPane
+                case .connections: connectionsPane
+                case .widgets: widgetsPane
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func settingsTitle(_ t: String) -> some View {
+        Text(t).font(.system(size: 18, weight: .bold)).foregroundStyle(.white)
+    }
+
+    // MARK: Account pane
+
+    @ViewBuilder
+    private var accountPane: some View {
+        if supabase.isSignedIn {
+            settingsTitle("Account")
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Signed in as").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                Text(supabase.userEmail ?? "—").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white).lineLimit(1).truncationMode(.middle)
+            }
+            syncBox
+            Button { Task { await supabase.signOut() } } label: {
+                Text("Sign out").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                    .background(Capsule().fill(Color.white.opacity(0.16)))
+            }
+            .buttonStyle(.plain)
+        } else {
+            settingsTitle(authIsSignUp ? "Create account" : "Sign in")
+            Text("Sync your shelf across your devices.")
+                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
+            authField(icon: "envelope", placeholder: "Email", text: $authEmail, secure: false)
+            authField(icon: "lock", placeholder: "Password", text: $authPassword, secure: true)
+            if let error = supabase.authError {
+                Text(error).font(.system(size: 11)).foregroundStyle(Color.orange.opacity(0.95))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if supabase.pendingConfirmation {
+                Text("Check your inbox to confirm your email, then sign in.")
+                    .font(.system(size: 11)).foregroundStyle(Color.green.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button {
+                Task {
+                    if authIsSignUp { await supabase.signUp(email: authEmail, password: authPassword) }
+                    else { await supabase.signIn(email: authEmail, password: authPassword) }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if supabase.isWorking { ProgressView().controlSize(.small).tint(.white) }
+                    Text(authIsSignUp ? "Create account" : "Sign in").font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 10)
+                .background(Capsule().fill(Color.accentColor))
+            }
+            .buttonStyle(.plain)
+            .disabled(supabase.isWorking || authEmail.isEmpty || authPassword.isEmpty)
+            .opacity(supabase.isWorking || authEmail.isEmpty || authPassword.isEmpty ? 0.6 : 1)
+            Button { authIsSignUp.toggle(); supabase.authError = nil } label: {
+                Text(authIsSignUp ? "Already have an account? Sign in" : "No account yet? Create one")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var syncBox: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Sync online").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text("Store your shelf in the cloud so it's available on your other devices. Off = this Mac only.")
+                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 6)
+                Toggle("", isOn: $sync.syncEnabled).labelsHidden().toggleStyle(.switch).tint(.accentColor)
+            }
+            if sync.syncEnabled, !sync.status.isEmpty {
+                Text(sync.status).font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
+    private func authField(icon: String, placeholder: String, text: Binding<String>, secure: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(.white.opacity(0.5)).frame(width: 16)
+            Group {
+                if secure { SecureField(placeholder, text: text) } else { TextField(placeholder, text: text) }
+            }
+            .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.white)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.white.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
+    // MARK: Preferences pane
+
+    private var preferencesPane: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            settingsTitle("Preferences")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Open shelf").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                Picker("", selection: $persistentSettings.openMode) {
+                    ForEach(ShelfOpenMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden()
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Dash sections").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                ForEach(DashSection.allCases) { section in
+                    Toggle(isOn: Binding(
+                        get: { persistentSettings.isDashSectionOn(section) },
+                        set: { _ in persistentSettings.toggleDashSection(section) }
+                    )) {
+                        Text(section.title).font(.system(size: 13)).foregroundStyle(.white)
+                    }
+                    .toggleStyle(.switch).tint(.accentColor)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: Connections pane
+
+    private var connectionsPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            settingsTitle("Connections")
+            connectionRow(
+                title: "Google", logo: GoogleAssets.drive, fallback: "externaldrive.fill",
+                connected: driveAuth.isConnected, detail: driveAuth.accountEmail,
+                busy: driveAuth.isConnecting,
+                connect: { connectGoogle() }, disconnect: { driveAuth.disconnect() })
+            connectionRow(
+                title: "Notion", logo: NotionAssets.logo, fallback: "doc.text",
+                connected: notionAuth.isConnected, detail: notionAuth.workspaceName,
+                busy: notionAuth.isConnecting,
+                connect: { connectNotion() }, disconnect: { notionAuth.disconnect(); notionService.clear() })
+            slackConnectionRow
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func connectionRow(title: String, logo: NSImage?, fallback: String,
+                               connected: Bool, detail: String?, busy: Bool,
+                               connect: @escaping () -> Void, disconnect: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            connLogo(logo, fallback)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                if connected {
+                    Text(detail ?? "Connected").font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.45)).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 8)
+            if connected {
+                Button("Disconnect", action: disconnect)
+                    .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
+            } else {
+                Button(busy ? "Connecting…" : "Connect", action: connect)
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.accentColor).disabled(busy)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
+    private var slackConnectionRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                connLogo(SlackAssets.logo, "number")
+                Text("Slack").font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                Spacer(minLength: 8)
+                Button(slack.isConnecting ? "Connecting…" : (slack.workspaces.isEmpty ? "Connect" : "Add"),
+                       action: { connectSlack() })
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.accentColor).disabled(slack.isConnecting)
+            }
+            ForEach(slack.workspaces) { ws in
+                HStack(spacing: 8) {
+                    Text(ws.teamName).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
+                    Spacer(minLength: 8)
+                    Button("Disconnect") { slack.disconnect(ws.teamId) }
+                        .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                }
+                .padding(.leading, 32)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
+    private func connLogo(_ image: NSImage?, _ fallback: String) -> some View {
+        Group {
+            if let image { Image(nsImage: image).resizable().scaledToFit() }
+            else { Image(systemName: fallback).resizable().scaledToFit().foregroundStyle(.white.opacity(0.8)) }
+        }
+        .frame(width: 22, height: 22)
+    }
+
+    // MARK: Widgets pane
+
+    private var widgetsPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            settingsTitle("Widgets")
+            Text("Choose what sits on either side of the notch in the always-visible bar.")
+                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                closeSettings()
+                openWidgetConfigurator()
+            } label: {
+                Label("Customize widgets", systemImage: "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Capsule().fill(Color.white.opacity(0.16)))
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var settingsShelfBackground: some View {
+        GeometryReader { geo in
+            ZStack {
+                VisualEffectBlur()
+                RadialGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: .black, location: 0.0),
+                        .init(color: .black.opacity(0.25), location: 1.0),
+                    ]),
+                    center: UnitPoint(x: 0.25, y: 0.0),
+                    startRadius: 0,
+                    endRadius: hypot(geo.size.width, geo.size.height)
+                )
             }
         }
     }

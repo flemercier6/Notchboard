@@ -19,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var notionService = NotionService(auth: notionAuth)
     private let supabase = SupabaseManager()
     private lazy var syncService = SyncService(store: store, supabase: supabase)
-    private lazy var authWindow = AuthWindowController(supabase: supabase, sync: syncService)
     private var window: NotchWindow?
 
     private let expander = SnippetExpander()
@@ -51,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notionAuth: notionAuth,
             notionService: notionService,
             supabase: supabase,
-            onOpenAuth: { [weak self] in self?.authWindow.show() }
+            sync: syncService
         )
         window.placeAtNotch()
         window.orderFrontRegardless()

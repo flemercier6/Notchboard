@@ -21,6 +21,9 @@ final class NotchViewModel: ObservableObject {
     @Published var isConfiguringWidgets = false { didSet { recompute() } }
     /// True while the note editor is open (keeps the panel open + window key).
     @Published var isEditingNote = false { didSet { recompute() } }
+    /// True while the settings popover is open (keeps the panel open + window key
+    /// so the Account text fields can receive input).
+    @Published var isSettingsOpen = false { didSet { recompute() } }
 
     private var notchHover = false
     private var panelHover = false
@@ -78,6 +81,7 @@ final class NotchViewModel: ObservableObject {
     private func recompute() {
         let shouldExpand = notchHover || panelHover || isSearching
             || editingColorId != nil || isEditingSnippet || isConfiguringWidgets || isEditingNote
+            || isSettingsOpen
         if shouldExpand {
             collapseTask?.cancel()
             collapseTask = nil
