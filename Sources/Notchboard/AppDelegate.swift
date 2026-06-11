@@ -16,6 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let slack = SlackService()
     private let notionAuth = NotionAuth()
     private lazy var notionService = NotionService(auth: notionAuth)
+    private let supabase = SupabaseManager()
+    private lazy var syncService = SyncService(store: store, supabase: supabase)
+    private lazy var authWindow = AuthWindowController(supabase: supabase, sync: syncService)
     private var window: NotchWindow?
 
     private let expander = SnippetExpander()
@@ -45,7 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appleCalendar: appleCalendar,
             slack: slack,
             notionAuth: notionAuth,
-            notionService: notionService
+            notionService: notionService,
+            supabase: supabase,
+            onOpenAuth: { [weak self] in self?.authWindow.show() }
         )
         window.placeAtNotch()
         window.orderFrontRegardless()
@@ -79,6 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Connect Slack (Socket Mode) for real-time message notifications.
         slack.start()
+
+        // Spin up the sync engine so it observes auth and syncs when enabled.
+        _ = syncService
 
         // Feed the text-expansion engine the current snippets, keeping it in
         // sync as items change.

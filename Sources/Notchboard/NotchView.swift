@@ -15,6 +15,8 @@ struct NotchView: View {
     @ObservedObject var slack: SlackService
     @ObservedObject var notionAuth: NotionAuth
     @ObservedObject var notionService: NotionService
+    @ObservedObject var supabase: SupabaseManager
+    var onOpenAuth: () -> Void = {}
     @State private var emailBanner: IncomingEmail?
     @State private var slackBanner: SlackMessage?
     @State private var slackBannerTask: Task<Void, Never>?
@@ -2479,6 +2481,18 @@ struct NotchView: View {
     /// Top-left settings: control the persistent bar's left/right widgets.
     private var settingsMenu: some View {
         Menu {
+            if supabase.isSignedIn {
+                Menu("Account (\(supabase.userEmail ?? "signed in"))") {
+                    Button("Sign out") { Task { await supabase.signOut() } }
+                }
+            } else {
+                Button {
+                    onOpenAuth()
+                } label: {
+                    Label("Sign in to sync…", systemImage: "person.crop.circle")
+                }
+            }
+            Divider()
             Button {
                 openWidgetConfigurator()
             } label: {

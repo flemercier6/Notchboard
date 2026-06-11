@@ -69,10 +69,25 @@ final class ShelfStore: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
     @Published private(set) var folders: [ShelfFolder] = []
 
+    /// Fired after any LOCAL mutation (not when remote sync applies changes), so
+    /// the sync engine can push. Suppressed during `applyRemote`.
+    var onLocalChange: (() -> Void)?
+    private var suppressChange = false
+
     init() {
         let loaded = ShelfPersistence.load()
         folders = loaded.folders
         items = loaded.items
+    }
+
+    /// Replace the store from a sync reconcile WITHOUT triggering `onLocalChange`
+    /// (so applying remote state doesn't bounce back as a push).
+    func applyRemote(folders newFolders: [ShelfFolder], items newItems: [ShelfItem]) {
+        suppressChange = true
+        defer { suppressChange = false }
+        folders = newFolders
+        items = newItems
+        ShelfPersistence.save(folders: folders, items: items)
     }
 
     @discardableResult
@@ -264,6 +279,7 @@ final class ShelfStore: ObservableObject {
 
     private func persist() {
         ShelfPersistence.save(folders: folders, items: items)
+        if !suppressChange { onLocalChange?() }
     }
 
     /// Pull whatever is currently on the system clipboard into the shelf,

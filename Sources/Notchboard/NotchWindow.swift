@@ -21,6 +21,8 @@ final class NotchWindow: NSPanel {
     private let slack: SlackService
     private let notionAuth: NotionAuth
     private let notionService: NotionService
+    private let supabase: SupabaseManager
+    private let onOpenAuth: () -> Void
     let viewModel = NotchViewModel()
     private var cancellables = Set<AnyCancellable>()
 
@@ -47,7 +49,9 @@ final class NotchWindow: NSPanel {
         appleCalendar: AppleCalendarService,
         slack: SlackService,
         notionAuth: NotionAuth,
-        notionService: NotionService
+        notionService: NotionService,
+        supabase: SupabaseManager,
+        onOpenAuth: @escaping () -> Void
     ) {
         self.store = store
         self.driveAuth = driveAuth
@@ -61,6 +65,8 @@ final class NotchWindow: NSPanel {
         self.slack = slack
         self.notionAuth = notionAuth
         self.notionService = notionService
+        self.supabase = supabase
+        self.onOpenAuth = onOpenAuth
         super.init(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -95,7 +101,9 @@ final class NotchWindow: NSPanel {
             appleCalendar: appleCalendar,
             slack: slack,
             notionAuth: notionAuth,
-            notionService: notionService
+            notionService: notionService,
+            supabase: supabase,
+            onOpenAuth: onOpenAuth
         ))
         hosting.autoresizingMask = [.width, .height]
         contentView = hosting

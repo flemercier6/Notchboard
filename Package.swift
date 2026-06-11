@@ -4,9 +4,15 @@ import PackageDescription
 let package = Package(
     name: "Notchboard",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(url: "https://github.com/supabase/supabase-swift.git", from: "2.0.0")
+    ],
     targets: [
         .executableTarget(
             name: "Notchboard",
+            dependencies: [
+                .product(name: "Supabase", package: "supabase-swift")
+            ],
             path: "Sources/Notchboard",
             swiftSettings: [.swiftLanguageMode(.v5)]
         )
