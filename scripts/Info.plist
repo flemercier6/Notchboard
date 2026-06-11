@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Notchboard</string>
+    <key>CFBundleDisplayName</key>
+    <string>Notchboard</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.fredericlemercier.notchboard</string>
+    <key>CFBundleExecutable</key>
+    <string>Notchboard</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Notchboard records your microphone during meetings to transcribe and summarize them.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Notchboard reads and controls your music players (Spotify, Apple Music) to show now-playing and transport controls.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Notchboard shows your Apple Calendar events in the dash.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Notchboard shows your Apple Calendar events in the dash.</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.fredericlemercier.notchboard.item</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Notchboard item</string>
+        </dict>
+    </array>
+</dict>
+</plist>

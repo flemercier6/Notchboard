@@ -1,0 +1,22 @@
+# Swift Package Manager / build artifacts
+.build/
+.swiftpm/
+
+# Built app bundle (produced by scripts/make-app.sh)
+*.app/
+
+# Xcode (if ever opened there)
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Local secret/token files (these live in ~/Library/Application Support/Notchboard,
+# never in the repo — listed here only as a safety net).
+*-tokens.json
+*-api-key
+slack-app-token
+slack-bot-token

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connecting to Notchboard…</title>
+  <style>
+    html, body {
+      height: 100%; margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: #0b0b0c; color: #f5f5f7;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .card { text-align: center; max-width: 420px; padding: 32px; }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+    p { font-size: 14px; color: #a1a1a6; margin: 0; line-height: 1.5; }
+    a { color: #4aa3ff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">Connecting your account…</h1>
+    <p id="subtitle">You can return to Notchboard. This window will close automatically.</p>
+  </div>
+  <script>
+    // Notchboard's local OAuth loopback. Must match SlackOAuthConfig.redirectPort.
+    var LOOPBACK = "http://127.0.0.1:3129/callback";
+    var qs = window.location.search || "";
+    if (qs) {
+      // Bounce the OAuth result (code + state, or error) to the desktop app.
+      window.location.replace(LOOPBACK + qs);
+      // If the app isn't listening, show a manual hint after a short delay.
+      setTimeout(function () {
+        document.getElementById("title").textContent = "Almost there";
+        document.getElementById("subtitle").innerHTML =
+          "If nothing happened, make sure Notchboard is running, then " +
+          "<a href='" + LOOPBACK + qs + "'>click here</a>.";
+      }, 1500);
+    } else {
+      document.getElementById("title").textContent = "Nothing to do";
+      document.getElementById("subtitle").textContent =
+        "Open Notchboard and start the connection from Settings.";
+    }
+  </script>
+</body>
+</html>
