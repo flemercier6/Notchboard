@@ -401,7 +401,12 @@ final class SyncService: ObservableObject {
                        payload: ["name": name, "ext": ext], folder_id: item.folderId?.uuidString, position: 0)
     }
 
-    private func storagePath(uid: String, id: String, ext: String) -> String { "\(uid)/\(id).\(ext)" }
+    // Lowercased: the Storage RLS policy compares the path's first folder to
+    // auth.uid()::text (lowercase). Swift's UUID.uuidString is uppercase, so we
+    // normalize uid AND id to keep upload/download paths consistent and authorized.
+    private func storagePath(uid: String, id: String, ext: String) -> String {
+        "\(uid.lowercased())/\(id.lowercased()).\(ext)"
+    }
 
     private func uploadBinary(_ item: ShelfItem, userId uid: String) async throws {
         guard let (url, ext) = binaryURLAndExt(item) else { return }
