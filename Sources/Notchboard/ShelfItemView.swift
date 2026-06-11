@@ -212,21 +212,8 @@ struct ShelfItemView: View {
                 }
                 .clipped()
         case .file(let url, let name):
-            VStack(spacing: 8) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 52, height: 52)
-                Text(name)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Real QuickLook preview (PDF page, video frame, doc…), icon fallback.
+            FileThumbnailView(url: url, name: name)
         case .color(let hex):
             // Just the color fill here; the editable code is layered above the
             // hover gradient in the body (so it stays readable/clickable).
