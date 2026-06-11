@@ -14,7 +14,7 @@ enum GoogleOAuthConfig {
     /// e.g. "123456789-abcdef.apps.googleusercontent.com". Public — safe to ship.
     /// The client SECRET is NOT here: token exchange/refresh runs server-side in
     /// the `oauth-proxy` Edge Function, which holds the secret.
-    static let clientId = "535692663846-9ujptgrj5oe2d0864mmtf62di8q891oo.apps.googleusercontent.com"
+    static let clientId = "535692663846-t2sdj5v0s0pqv4qcobfm635jkqlh4rfq.apps.googleusercontent.com"
 
     static var isConfigured: Bool { !clientId.isEmpty }
 }

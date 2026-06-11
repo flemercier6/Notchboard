@@ -10,7 +10,7 @@
 
 const CLIENTS: Record<string, { id: string; secretEnv: string }> = {
   google: {
-    id: "535692663846-9ujptgrj5oe2d0864mmtf62di8q891oo.apps.googleusercontent.com",
+    id: "535692663846-t2sdj5v0s0pqv4qcobfm635jkqlh4rfq.apps.googleusercontent.com",
     secretEnv: "GOOGLE_CLIENT_SECRET",
   },
   slack: {
