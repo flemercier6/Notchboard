@@ -1,15 +1,27 @@
-import { createClient } from "jsr:@supabase/supabase-js@2";
+// Server-side OAuth token exchange/refresh for Google / Slack / Notion.
+//
+// The client SECRETS are read from Edge Function Secrets (Project -> Edge
+// Functions -> Secrets), set by the project owner in the Supabase dashboard --
+// never in this code, the app, or the git repo. The public client IDs are
+// hardcoded below (they ship in the app anyway).
+//
+// Deployed with verify_jwt=false: integrations connect before any Supabase
+// sign-in, and the secret stays server-side regardless.
 
-// Server-side OAuth token exchange/refresh. The client secrets live ONLY here
-// (in the locked public.oauth_credentials table, readable by service_role only),
-// never in the distributed app or the git repo. The client sends the short-lived
-// authorization `code` (or a refresh_token) and gets back the provider's token
-// response verbatim. Deployed with verify_jwt=false (integrations connect before
-// any Supabase sign-in; the secret stays server-side regardless).
-const admin = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-);
+const CLIENTS: Record<string, { id: string; secretEnv: string }> = {
+  google: {
+    id: "535692663846-9ujptgrj5oe2d0864mmtf62di8q891oo.apps.googleusercontent.com",
+    secretEnv: "GOOGLE_CLIENT_SECRET",
+  },
+  slack: {
+    id: "10744348290480.11302757894647",
+    secretEnv: "SLACK_CLIENT_SECRET",
+  },
+  notion: {
+    id: "37bd872b-594c-81c7-b9b7-0037a2dd2625",
+    secretEnv: "NOTION_CLIENT_SECRET",
+  },
+};
 
 function json(obj: unknown, status: number): Response {
   return new Response(JSON.stringify(obj), {
@@ -30,21 +42,19 @@ Deno.serve(async (req: Request) => {
 
   const provider = body.provider;
   const action = body.action ?? "exchange";
-  if (!provider) return json({ error: "missing provider" }, 400);
+  const cfg = provider ? CLIENTS[provider] : undefined;
+  if (!cfg) return json({ error: "unknown provider" }, 400);
 
-  const { data: cred, error } = await admin
-    .from("oauth_credentials")
-    .select("client_id, client_secret")
-    .eq("provider", provider)
-    .single();
-  if (error || !cred) return json({ error: "unknown provider" }, 400);
+  const clientId = cfg.id;
+  const clientSecret = Deno.env.get(cfg.secretEnv);
+  if (!clientSecret) return json({ error: `${provider} secret not configured` }, 500);
 
   let resp: Response;
   try {
     if (provider === "google") {
       const form = new URLSearchParams();
-      form.set("client_id", cred.client_id);
-      form.set("client_secret", cred.client_secret);
+      form.set("client_id", clientId);
+      form.set("client_secret", clientSecret);
       if (action === "refresh") {
         form.set("grant_type", "refresh_token");
         form.set("refresh_token", body.refresh_token ?? "");
@@ -61,8 +71,8 @@ Deno.serve(async (req: Request) => {
       });
     } else if (provider === "slack") {
       const form = new URLSearchParams();
-      form.set("client_id", cred.client_id);
-      form.set("client_secret", cred.client_secret);
+      form.set("client_id", clientId);
+      form.set("client_secret", clientSecret);
       form.set("code", body.code ?? "");
       if (body.redirect_uri) form.set("redirect_uri", body.redirect_uri);
       resp = await fetch("https://slack.com/api/oauth.v2.access", {
@@ -71,7 +81,7 @@ Deno.serve(async (req: Request) => {
         body: form.toString(),
       });
     } else if (provider === "notion") {
-      const basic = btoa(`${cred.client_id}:${cred.client_secret}`);
+      const basic = btoa(`${clientId}:${clientSecret}`);
       resp = await fetch("https://api.notion.com/v1/oauth/token", {
         method: "POST",
         headers: {
