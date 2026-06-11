@@ -17,8 +17,7 @@ enum DriveError: Error {
 /// convenience it also falls back to a `google-credentials.json` placed in the
 /// support folder (the JSON downloaded from Google Cloud Console).
 struct GoogleCredentials {
-    let clientId: String
-    let clientSecret: String
+    let clientId: String   // public; the client secret lives only in oauth-proxy
 
     static var fileURL: URL {
         ShelfPersistence.directory.appendingPathComponent("google-credentials.json")
@@ -28,10 +27,7 @@ struct GoogleCredentials {
         // Preferred: the app's own embedded OAuth client → every user connects
         // their own account with no setup.
         if GoogleOAuthConfig.isConfigured {
-            return GoogleCredentials(
-                clientId: GoogleOAuthConfig.clientId,
-                clientSecret: GoogleOAuthConfig.clientSecret
-            )
+            return GoogleCredentials(clientId: GoogleOAuthConfig.clientId)
         }
         // Dev fallback: read the downloaded client JSON from the support folder.
         guard let data = try? Data(contentsOf: fileURL),
@@ -39,10 +35,8 @@ struct GoogleCredentials {
         else { return nil }
         // The downloaded file wraps everything under "installed" (or "web").
         let obj = (json["installed"] as? [String: Any]) ?? (json["web"] as? [String: Any]) ?? json
-        guard let id = obj["client_id"] as? String,
-              let secret = obj["client_secret"] as? String
-        else { return nil }
-        return GoogleCredentials(clientId: id, clientSecret: secret)
+        guard let id = obj["client_id"] as? String else { return nil }
+        return GoogleCredentials(clientId: id)
     }
 }
 
@@ -161,15 +155,12 @@ final class GoogleDriveAuth: ObservableObject {
     func accessToken() async throws -> String {
         guard var current = tokens else { throw DriveError.message("Not connected to Google Drive") }
         if current.expiry > Date().addingTimeInterval(60) { return current.accessToken }
-        guard let creds = GoogleCredentials.load() else { throw DriveError.message("Missing credentials") }
 
-        let form = [
-            "client_id": creds.clientId,
-            "client_secret": creds.clientSecret,
+        let response = try await postToken([
+            "provider": "google",
+            "action": "refresh",
             "refresh_token": current.refreshToken,
-            "grant_type": "refresh_token",
-        ]
-        let response = try await postToken(form)
+        ])
         current.accessToken = response.access_token
         current.expiry = Date().addingTimeInterval(TimeInterval(response.expires_in ?? 3600))
         if let refreshed = response.refresh_token { current.refreshToken = refreshed }
@@ -182,15 +173,13 @@ final class GoogleDriveAuth: ObservableObject {
     // MARK: - Token exchange
 
     private func exchangeCode(_ code: String, verifier: String, redirectURI: String, creds: GoogleCredentials) async throws {
-        let form = [
+        let response = try await postToken([
+            "provider": "google",
+            "action": "exchange",
             "code": code,
-            "client_id": creds.clientId,
-            "client_secret": creds.clientSecret,
             "redirect_uri": redirectURI,
-            "grant_type": "authorization_code",
             "code_verifier": verifier,
-        ]
-        let response = try await postToken(form)
+        ])
         guard let refresh = response.refresh_token else {
             throw DriveError.message("No refresh token returned — remove the app from your Google account and retry.")
         }
@@ -204,13 +193,11 @@ final class GoogleDriveAuth: ObservableObject {
         saveTokens()
     }
 
-    private func postToken(_ form: [String: String]) async throws -> TokenResponse {
-        var req = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = Self.formEncode(form).data(using: .utf8)
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+    /// Token exchange/refresh via the server-side oauth-proxy (the client secret
+    /// never touches the app). `payload` is the proxy request, not Google's form.
+    private func postToken(_ payload: [String: String]) async throws -> TokenResponse {
+        let (data, http) = try await OAuthProxy.send(payload)
+        guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw DriveError.message("Google token request failed. \(body)")
         }

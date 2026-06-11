@@ -134,16 +134,14 @@ final class SlackService: ObservableObject {
     }
 
     private func exchangeCode(_ code: String) async throws {
-        var req = URLRequest(url: URL(string: "https://slack.com/api/oauth.v2.access")!)
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = Self.formEncode([
-            "client_id": SlackOAuthConfig.clientId,
-            "client_secret": SlackOAuthConfig.clientSecret,
-            "redirect_uri": SlackOAuthConfig.redirectURI,
+        // Token exchange runs server-side (oauth-proxy) so the client secret
+        // never ships in the app.
+        let (data, _) = try await OAuthProxy.send([
+            "provider": "slack",
+            "action": "exchange",
             "code": code,
-        ]).data(using: .utf8)
-        let (data, _) = try await session.data(for: req)
+            "redirect_uri": SlackOAuthConfig.redirectURI,
+        ])
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SlackError.message("Couldn't read Slack's response.")
         }

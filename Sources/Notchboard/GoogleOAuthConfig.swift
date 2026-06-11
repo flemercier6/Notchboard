@@ -11,13 +11,10 @@ import Foundation
 ///
 /// To enable Drive for everyone: paste the two values below, then rebuild.
 enum GoogleOAuthConfig {
-    /// e.g. "123456789-abcdef.apps.googleusercontent.com"
+    /// e.g. "123456789-abcdef.apps.googleusercontent.com". Public — safe to ship.
+    /// The client SECRET is NOT here: token exchange/refresh runs server-side in
+    /// the `oauth-proxy` Edge Function, which holds the secret.
     static let clientId = "535692663846-9ujptgrj5oe2d0864mmtf62di8q891oo.apps.googleusercontent.com"
-    /// e.g. "GOCSPX-xxxxxxxxxxxxxxxx"
-    static let clientSecret = "***REDACTED***"
 
-    /// True once the developer has filled in the app's OAuth client above.
-    static var isConfigured: Bool {
-        !clientId.isEmpty && !clientSecret.isEmpty
-    }
+    static var isConfigured: Bool { !clientId.isEmpty }
 }

@@ -11,8 +11,9 @@ import Foundation
 /// To enable Notion: paste the two values below, set `redirectURI` to your hosted
 /// page (and add the SAME URL to the integration's Redirect URIs), then rebuild.
 enum NotionOAuthConfig {
+    // Public — safe to ship. The client SECRET is NOT here: token exchange runs
+    // server-side in the `oauth-proxy` Edge Function.
     static let clientId = "37bd872b-594c-81c7-b9b7-0037a2dd2625"        // Notion integration → OAuth Client ID
-    static let clientSecret = "***REDACTED***"    // Notion integration → OAuth Client Secret
 
     /// The local loopback port the hosted callback page redirects to (shared with
     /// the other OAuth flows — only one runs at a time).
@@ -22,6 +23,6 @@ enum NotionOAuthConfig {
     static let redirectURI = "https://flemercier6.github.io/notchboard-oauth/"
 
     static var isConfigured: Bool {
-        !clientId.isEmpty && !clientSecret.isEmpty && !redirectURI.contains("YOUR-DOMAIN")
+        !clientId.isEmpty && !redirectURI.contains("YOUR-DOMAIN")
     }
 }

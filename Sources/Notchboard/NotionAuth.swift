@@ -73,22 +73,15 @@ final class NotionAuth: ObservableObject {
     }
 
     private func exchangeCode(_ code: String) async throws {
-        var req = URLRequest(url: URL(string: "https://api.notion.com/v1/oauth/token")!)
-        req.httpMethod = "POST"
-        let creds = "\(NotionOAuthConfig.clientId):\(NotionOAuthConfig.clientSecret)"
-        let basic = Data(creds.utf8).base64EncodedString()
-        req.setValue("Basic \(basic)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("2022-06-28", forHTTPHeaderField: "Notion-Version")
-        let body: [String: Any] = [
-            "grant_type": "authorization_code",
+        // Token exchange runs server-side (oauth-proxy) so the client secret
+        // never ships in the app.
+        let (data, http) = try await OAuthProxy.send([
+            "provider": "notion",
+            "action": "exchange",
             "code": code,
             "redirect_uri": NotionOAuthConfig.redirectURI,
-        ]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200,
+        ])
+        guard http.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let token = obj["access_token"] as? String else {
             let bodyText = String(data: data, encoding: .utf8) ?? ""

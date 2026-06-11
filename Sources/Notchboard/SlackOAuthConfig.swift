@@ -13,8 +13,9 @@ import Foundation
 /// To enable Slack: paste the two values below, set `redirectURI` to your hosted
 /// page (and put the SAME URL in the Slack app's Redirect URLs), then rebuild.
 enum SlackOAuthConfig {
+    // Public — safe to ship. The client SECRET is NOT here: token exchange runs
+    // server-side in the `oauth-proxy` Edge Function.
     static let clientId = "10744348290480.11302757894647"        // Slack app → Basic Information → Client ID
-    static let clientSecret = "***REDACTED***"    // Slack app → Basic Information → Client Secret
 
     /// The local loopback port the hosted callback page must redirect to.
     /// Must match the LOOPBACK port in oauth-callback/index.html.
@@ -32,6 +33,6 @@ enum SlackOAuthConfig {
     ]
 
     static var isConfigured: Bool {
-        !clientId.isEmpty && !clientSecret.isEmpty && !redirectURI.contains("YOUR-DOMAIN")
+        !clientId.isEmpty && !redirectURI.contains("YOUR-DOMAIN")
     }
 }
