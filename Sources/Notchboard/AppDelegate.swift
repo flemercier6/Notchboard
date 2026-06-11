@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var meetingController = MeetingController(detector: meetingDetector, store: store)
     private let nowPlaying = NowPlayingService()
     private let appleCalendar = AppleCalendarService()
+    private let screenshotWatcher = ScreenshotWatcher()
     private let slack = SlackService()
     private let notionAuth = NotionAuth()
     private lazy var notionService = NotionService(auth: notionAuth)
@@ -87,6 +88,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Spin up the sync engine so it observes auth and syncs when enabled.
         _ = syncService
+
+        // Auto-save new screenshots to the shelf.
+        screenshotWatcher.onScreenshot = { [weak self] url in
+            self?.store.addImageFile(url, displayName: url.lastPathComponent)
+        }
+        screenshotWatcher.start()
 
         // Feed the text-expansion engine the current snippets, keeping it in
         // sync as items change.

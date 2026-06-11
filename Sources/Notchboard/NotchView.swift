@@ -800,12 +800,8 @@ struct NotchView: View {
                 if showDriveRow {
                     assetRow(label: "Drive", logo: GoogleAssets.drive) { ForEach(driveService.files) { driveTile($0) } }
                 }
-                if showMailRow {
-                    assetRow(label: "Mail", logo: GoogleAssets.gmail) { ForEach(gmailService.messages) { gmailTile($0) } }
-                }
-                if showCalendarRow {
-                    assetRow(label: "Calendar", logo: GoogleAssets.calendar) { ForEach(calendarService.events) { calendarTile($0) } }
-                }
+                // Mail and Calendar are intentionally NOT shown here: Calendar lives
+                // in the Dash, and email isn't shelf content.
                 if assetRowCount == 0 {
                     Text("Drag content onto the notch, or connect an account in Settings.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
@@ -868,17 +864,9 @@ struct NotchView: View {
     private var showDriveRow: Bool {
         driveAuth.isConnected && driveAuth.hasScope(GoogleScopes.drive) && !driveService.files.isEmpty
     }
-    private var showMailRow: Bool {
-        driveAuth.isConnected && driveAuth.hasScope(GoogleScopes.gmail) && !gmailService.messages.isEmpty
-    }
-    private var showCalendarRow: Bool {
-        driveAuth.isConnected && driveAuth.hasScope(GoogleScopes.calendar) && !calendarService.events.isEmpty
-    }
 
     private var assetRowCount: Int {
-        localAssetKinds.count + store.folders.count
-            + (showDriveRow ? 1 : 0) + (showMailRow ? 1 : 0)
-            + (showCalendarRow ? 1 : 0)
+        localAssetKinds.count + store.folders.count + (showDriveRow ? 1 : 0)
     }
 
     private var assetsHeight: CGFloat {
@@ -888,14 +876,9 @@ struct NotchView: View {
     }
 
     private func loadAssetsRemotes() {
+        // Only Drive is shown in Assets now (Mail/Calendar moved out).
         if driveAuth.isConnected, driveAuth.hasScope(GoogleScopes.drive), driveService.files.isEmpty {
             driveService.loadRecent()
-        }
-        if driveAuth.isConnected, driveAuth.hasScope(GoogleScopes.gmail), gmailService.messages.isEmpty {
-            gmailService.loadRecent()
-        }
-        if driveAuth.isConnected, driveAuth.hasScope(GoogleScopes.calendar), calendarService.events.isEmpty {
-            calendarService.loadUpcoming()
         }
     }
 
