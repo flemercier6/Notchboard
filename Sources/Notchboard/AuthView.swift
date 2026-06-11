@@ -227,19 +227,28 @@ struct AuthView: View {
     }
 
     private var syncBox: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Sync online")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                Text("Store your shelf in the cloud so it's available on your other devices. Off = kept on this Mac only.")
-                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Sync online")
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text("Store your shelf in the cloud so it's available on your other devices. Off = kept on this Mac only.")
+                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 6)
+                Toggle("", isOn: $sync.syncEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(.accentColor)
             }
-            Spacer(minLength: 6)
-            Toggle("", isOn: $sync.syncEnabled)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(.accentColor)
+            if sync.syncEnabled, !sync.status.isEmpty {
+                Text(sync.status)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))

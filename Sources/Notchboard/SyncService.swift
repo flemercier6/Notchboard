@@ -36,6 +36,8 @@ final class SyncService: ObservableObject {
             refresh()
         }
     }
+    /// Human-readable status surfaced in the account popover (for visibility/debug).
+    @Published private(set) var status: String = ""
 
     private let store: ShelfStore
     private let supabase: SupabaseManager
@@ -119,6 +121,7 @@ final class SyncService: ObservableObject {
         guard isActive, !reconcileInFlight, let uid = supabase.userId?.uuidString else { return }
         reconcileInFlight = true
         defer { reconcileInFlight = false }
+        status = "Syncing…"
 
         do {
             let remoteItemRows: [ItemRow] = try await supabase.client
@@ -242,8 +245,13 @@ final class SyncService: ObservableObject {
             base.folders = newFolderBase
             base.userId = uid
             saveBase()
+
+            let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+            status = "✓ \(f.string(from: Date())) — local \(localSyncable.count) item(s), "
+                + "pushed \(itemUpserts.count), cloud \(newItemBase.count); "
+                + "folders \(resultFolders.count)"
         } catch {
-            // Transient (offline, etc.) — next cycle retries.
+            status = "⚠️ \(String(describing: error).prefix(300))"
         }
     }
 
