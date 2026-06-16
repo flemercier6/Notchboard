@@ -77,6 +77,11 @@ final class ShelfStore: ObservableObject {
     /// Set when a screenshot is auto-saved, so the UI can flash a confirmation.
     @Published var lastScreenshotAdded: ShelfItem?
 
+    /// Ids the user has explicitly deleted, awaiting propagation to the cloud.
+    /// Persisted so a delete survives a restart, and so sync only ever removes
+    /// cloud rows the USER deleted (never via inference — that caused data loss).
+    @Published private(set) var deletedIds: Set<UUID> = ShelfStore.loadDeletedIds()
+
     /// Fired after any LOCAL mutation (not when remote sync applies changes), so
     /// the sync engine can push. Suppressed during `applyRemote`.
     var onLocalChange: (() -> Void)?
@@ -121,6 +126,7 @@ final class ShelfStore: ObservableObject {
         for index in items.indices where items[index].folderId == id {
             items[index].folderId = nil
         }
+        recordDeleted(id)
         persist()
     }
 
@@ -285,12 +291,39 @@ final class ShelfStore: ObservableObject {
 
     func remove(_ item: ShelfItem) {
         items.removeAll { $0.id == item.id }
+        recordDeleted(item.id)
         persist()
     }
 
     func clear() {
+        for item in items { deletedIds.insert(item.id) }
         items.removeAll()
+        saveDeletedIds()
         persist()
+    }
+
+    private func recordDeleted(_ id: UUID) {
+        deletedIds.insert(id)
+        saveDeletedIds()
+    }
+
+    /// Called by the sync engine once a deletion has been propagated to the cloud.
+    func clearDeleted(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        for id in ids { deletedIds.remove(id) }
+        saveDeletedIds()
+    }
+
+    private static var deletedIdsURL: URL {
+        ShelfPersistence.directory.appendingPathComponent("pending-deletions.json")
+    }
+    private static func loadDeletedIds() -> Set<UUID> {
+        guard let data = try? Data(contentsOf: deletedIdsURL),
+              let ids = try? JSONDecoder().decode([UUID].self, from: data) else { return [] }
+        return Set(ids)
+    }
+    private func saveDeletedIds() {
+        try? JSONEncoder().encode(Array(deletedIds)).write(to: Self.deletedIdsURL)
     }
 
     private func persist() {

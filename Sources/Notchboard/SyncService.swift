@@ -132,6 +132,14 @@ final class SyncService: ObservableObject {
             let remoteFolderRows: [FolderRow] = try await supabase.client
                 .from("folders").select().execute().value
 
+            // The ONLY things sync may remove from the cloud: ids the user
+            // explicitly deleted on this device. Never inferred from absence.
+            let userDeleted = store.deletedIds
+            func isUserDeleted(_ id: String) -> Bool {
+                guard let uuid = UUID(uuidString: id) else { return false }
+                return userDeleted.contains(uuid)
+            }
+
             // ---- Items 3-way merge ----
             let localSyncable = store.items.filter { itemSignature($0) != nil }
             let localById = Dictionary(localSyncable.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { a, _ in a })
@@ -170,10 +178,10 @@ final class SyncService: ObservableObject {
                     // data. Keep it and (re)push so the cloud reflects local.
                     resultItems.append(l); itemUpserts.append(l); newItemBase[id] = lSig
                 case let (nil, r?):
-                    if bSig == nil {
-                        resultItems.append(r); newItemBase[id] = rSig                           // new from another device
+                    if isUserDeleted(id) {
+                        itemDeletes.append(id)                                                  // user deleted -> remove from cloud
                     } else {
-                        itemDeletes.append(id)                                                  // deleted locally -> delete remote
+                        resultItems.append(r); newItemBase[id] = rSig                           // in cloud, not local -> pull it
                     }
                 case (nil, nil):
                     break
@@ -212,12 +220,11 @@ final class SyncService: ObservableObject {
                         }
                     }
                 case let (l?, nil):
-                    if bSig == nil || lSig != bSig {
-                        resultFolders.append(l); folderUpserts.append(l); newFolderBase[id] = lSig
-                    }
+                    // Never drop a local folder on a missing pull — keep + (re)push.
+                    resultFolders.append(l); folderUpserts.append(l); newFolderBase[id] = lSig
                 case let (nil, r?):
-                    if bSig == nil { resultFolders.append(r); newFolderBase[id] = rSig }
-                    else { folderDeletes.append(id) }
+                    if isUserDeleted(id) { folderDeletes.append(id) }            // user deleted -> remove from cloud
+                    else { resultFolders.append(r); newFolderBase[id] = rSig }   // in cloud, not local -> pull it
                 case (nil, nil):
                     break
                 }
@@ -256,13 +263,11 @@ final class SyncService: ObservableObject {
                     if bSig == nil { try await uploadBinary(l, userId: uid) }
                     resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
                 case let (nil, r?):
-                    if bSig == nil {
-                        if let item = try await downloadBinary(r, userId: uid) {         // new from another device
-                            resultItems.append(item); newBinaryBase[id] = rSig
-                        }
-                    } else {                                                            // deleted locally -> delete remote
+                    if isUserDeleted(id) {                                               // user deleted -> remove from cloud
                         binaryRowDeletes.append(id)
                         binaryStorageDeletes.append(storagePath(uid: uid, id: id, ext: r.payload["ext"] ?? "bin"))
+                    } else if let item = try await downloadBinary(r, userId: uid) {       // in cloud, not local -> pull it
+                        resultItems.append(item); newBinaryBase[id] = rSig
                     }
                 case (nil, nil):
                     break
@@ -298,6 +303,9 @@ final class SyncService: ObservableObject {
             base.folders = newFolderBase
             base.userId = uid
             saveBase()
+
+            // Deletions have now been propagated to the cloud — stop tracking them.
+            store.clearDeleted(Array(userDeleted))
 
             let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
             status = "✓ \(f.string(from: Date())) — text \(localSyncable.count), binary \(localBinaryById.count); "
