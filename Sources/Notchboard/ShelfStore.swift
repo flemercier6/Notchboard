@@ -90,7 +90,8 @@ final class ShelfStore: ObservableObject {
     init() {
         let loaded = ShelfPersistence.load()
         folders = loaded.folders
-        items = loaded.items
+        // Newest first (left-most in the shelf).
+        items = loaded.items.sorted { $0.createdAt > $1.createdAt }
     }
 
     /// Replace the store from a sync reconcile WITHOUT triggering `onLocalChange`
@@ -168,7 +169,7 @@ final class ShelfStore: ObservableObject {
         } else {
             item = ShelfItem(payload: .text(string), folderId: folderId)
         }
-        items.append(item)
+        items.insert(item, at: 0)
         persist()
         return item.id
     }
@@ -179,11 +180,11 @@ final class ShelfStore: ObservableObject {
         let id = UUID()
         guard let stored = ShelfPersistence.importImageFile(source, id: id),
               let image = NSImage(contentsOf: stored) else { return nil }
-        items.append(ShelfItem(
+        items.insert(ShelfItem(
             id: id,
             payload: .image(url: stored, name: displayName ?? source.lastPathComponent, image: image),
             folderId: folderId
-        ))
+        ), at: 0)
         persist()
         return id
     }
@@ -202,7 +203,7 @@ final class ShelfStore: ObservableObject {
     func addImage(_ image: NSImage, name: String = "image.png", folderId: UUID? = nil) -> UUID? {
         let id = UUID()
         guard let stored = ShelfPersistence.storeImageAsPNG(image, id: id) else { return nil }
-        items.append(ShelfItem(id: id, payload: .image(url: stored, name: name, image: image), folderId: folderId))
+        items.insert(ShelfItem(id: id, payload: .image(url: stored, name: name, image: image), folderId: folderId), at: 0)
         persist()
         return id
     }
@@ -210,7 +211,7 @@ final class ShelfStore: ObservableObject {
     /// Add a color swatch from a hex string.
     func addColor(_ hex: String, folderId: UUID? = nil) {
         guard let normalized = parseHexColor(hex) else { return }
-        items.append(ShelfItem(payload: .color(normalized), folderId: folderId))
+        items.insert(ShelfItem(payload: .color(normalized), folderId: folderId), at: 0)
         persist()
     }
 
@@ -218,7 +219,7 @@ final class ShelfStore: ObservableObject {
     @discardableResult
     func addColorPlaceholder(folderId: UUID? = nil) -> UUID {
         let item = ShelfItem(payload: .color("#"), folderId: folderId)
-        items.append(item)
+        items.insert(item, at: 0)
         persist()
         return item.id
     }
@@ -231,7 +232,7 @@ final class ShelfStore: ObservableObject {
             let current = items[index]
             items[index] = ShelfItem(id: id, payload: .snippet(trigger: trimmed, replacement: replacement), createdAt: current.createdAt, folderId: current.folderId)
         } else {
-            items.append(ShelfItem(payload: .snippet(trigger: trimmed, replacement: replacement), folderId: folderId))
+            items.insert(ShelfItem(payload: .snippet(trigger: trimmed, replacement: replacement), folderId: folderId), at: 0)
         }
         persist()
     }
@@ -240,7 +241,7 @@ final class ShelfStore: ObservableObject {
     @discardableResult
     func addNote(folderId: UUID? = nil) -> UUID {
         let item = ShelfItem(payload: .note(""), folderId: folderId)
-        items.append(item)
+        items.insert(item, at: 0)
         persist()
         return item.id
     }
@@ -284,7 +285,7 @@ final class ShelfStore: ObservableObject {
     func addFile(_ source: URL, folderId: UUID? = nil) -> UUID? {
         let id = UUID()
         guard let stored = ShelfPersistence.importFile(source, id: id) else { return nil }
-        items.append(ShelfItem(id: id, payload: .file(url: stored, name: source.lastPathComponent), folderId: folderId))
+        items.insert(ShelfItem(id: id, payload: .file(url: stored, name: source.lastPathComponent), folderId: folderId), at: 0)
         persist()
         return id
     }

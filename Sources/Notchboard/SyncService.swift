@@ -275,7 +275,7 @@ final class SyncService: ObservableObject {
             }
 
             // ---- Apply locally (only if something changed, to avoid UI churn) ----
-            resultItems.sort { $0.createdAt < $1.createdAt }
+            resultItems.sort { $0.createdAt > $1.createdAt }   // newest first (left-most)
             if !sameItems(resultItems, store.items) || !sameFolders(resultFolders, store.folders) {
                 store.applyRemote(folders: resultFolders, items: resultItems)
             }
