@@ -165,9 +165,10 @@ final class SyncService: ObservableObject {
                         }
                     }
                 case let (l?, nil):
-                    if bSig == nil || lSig != bSig {
-                        resultItems.append(l); itemUpserts.append(l); newItemBase[id] = lSig    // new/edited locally -> push
-                    } // else: deleted remotely -> drop
+                    // NEVER drop a local item just because it's missing from this
+                    // pull — an empty/transient pull must not delete the user's
+                    // data. Keep it and (re)push so the cloud reflects local.
+                    resultItems.append(l); itemUpserts.append(l); newItemBase[id] = lSig
                 case let (nil, r?):
                     if bSig == nil {
                         resultItems.append(r); newItemBase[id] = rSig                           // new from another device
@@ -249,12 +250,11 @@ final class SyncService: ObservableObject {
                         resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
                     }
                 case let (l?, nil):
-                    if bSig == nil {
-                        try await uploadBinary(l, userId: uid)                          // new local binary
-                        resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
-                    } else if lSig != bSig {
-                        resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
-                    } // else: deleted remotely -> drop (local file pruned on save)
+                    // Never drop a local binary on a missing pull (it would also
+                    // prune the local file → permanent loss). Upload the first
+                    // time; otherwise just (re)push the row — binary already stored.
+                    if bSig == nil { try await uploadBinary(l, userId: uid) }
+                    resultItems.append(l); binaryRowUpserts.append(binaryRow(l, userId: uid)); newBinaryBase[id] = lSig
                 case let (nil, r?):
                     if bSig == nil {
                         if let item = try await downloadBinary(r, userId: uid) {         // new from another device
